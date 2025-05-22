@@ -1,7 +1,7 @@
 #include "SenderRunner.hpp"
 
 SenderRunner::SenderRunner() : running(false) {
-    init_params.depth_mode = sl::DEPTH_MODE::ULTRA;
+    init_params.depth_mode = sl::DEPTH_MODE::NEURAL_LIGHT;
     init_params.camera_fps = 30;
     init_params.camera_resolution = sl::RESOLUTION::HD720;
     init_params.sdk_verbose = 6;
