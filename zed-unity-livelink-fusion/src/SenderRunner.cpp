@@ -37,10 +37,10 @@ bool SenderRunner::open(sl::InputType input, sl::BODY_FORMAT body_format) {
 
     // define the body tracking parameters, as the fusion can does the tracking and fitting you don't need to enable them here, unless you need it for your app
     sl::BodyTrackingParameters body_tracking_parameters;
-    body_tracking_parameters.detection_model = sl::BODY_TRACKING_MODEL::HUMAN_BODY_ACCURATE;
+    body_tracking_parameters.detection_model = sl::BODY_TRACKING_MODEL::HUMAN_BODY_FAST;
     body_tracking_parameters.body_format = body_format;
-    body_tracking_parameters.enable_body_fitting = false;
-    body_tracking_parameters.enable_tracking = false;
+    body_tracking_parameters.enable_body_fitting = true;
+    body_tracking_parameters.enable_tracking = true;
     state = zed.enableBodyTracking(body_tracking_parameters);
     if (state != sl::ERROR_CODE::SUCCESS)
     {
