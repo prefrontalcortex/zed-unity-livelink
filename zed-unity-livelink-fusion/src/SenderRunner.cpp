@@ -1,7 +1,7 @@
 #include "SenderRunner.hpp"
 
-SenderRunner::SenderRunner() : running(false) {
-    init_params.depth_mode = sl::DEPTH_MODE::NEURAL_LIGHT;
+SenderRunner::SenderRunner() : running(false), detection_confidence(40), enable_body_fitting(false), enable_tracking(false), body_tracking_model(sl::BODY_TRACKING_MODEL::HUMAN_BODY_ACCURATE) {
+    init_params.depth_mode = sl::DEPTH_MODE::NEURAL;  // Changed from ULTRA to NEURAL_MEDIUM
     init_params.camera_fps = 30;
     init_params.camera_resolution = sl::RESOLUTION::HD720;
     init_params.sdk_verbose = 6;
@@ -35,12 +35,12 @@ bool SenderRunner::open(sl::InputType input, sl::BODY_FORMAT body_format) {
         return false;
     }
 
-    // define the body tracking parameters, as the fusion can does the tracking and fitting you don't need to enable them here, unless you need it for your app
+    // Use the class member variables for configuration
     sl::BodyTrackingParameters body_tracking_parameters;
-    body_tracking_parameters.detection_model = sl::BODY_TRACKING_MODEL::HUMAN_BODY_FAST;
+    body_tracking_parameters.detection_model = body_tracking_model;
     body_tracking_parameters.body_format = body_format;
-    body_tracking_parameters.enable_body_fitting = true;
-    body_tracking_parameters.enable_tracking = true;
+    body_tracking_parameters.enable_body_fitting = enable_body_fitting;
+    body_tracking_parameters.enable_tracking = enable_tracking;
     state = zed.enableBodyTracking(body_tracking_parameters);
     if (state != sl::ERROR_CODE::SUCCESS)
     {
@@ -76,7 +76,7 @@ void SenderRunner::work()
 {
     sl::Bodies bodies;
     sl::BodyTrackingRuntimeParameters body_runtime_parameters;
-    body_runtime_parameters.detection_confidence_threshold = 40;
+    body_runtime_parameters.detection_confidence_threshold = detection_confidence;
 
     // in this sample we use a dummy thread to process the ZED data.
     // you can replace it by your own application and use the ZED like you use to, retrieve its images, depth, sensors data and so on.
