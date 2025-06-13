@@ -117,6 +117,7 @@ int main(int argc, char **argv) {
             clients[id_].setBodyTracking(enable_tracking);
             clients[id_].setBodyFitting(enable_body_fitting);
             clients[id_].setDetectionConfidence(detection_confidence);
+            //clients[id_].setPredictionTimeout(1);
             
             auto state = clients[id_++].open(conf.input_type, BODY_FORMAT);
             if (state)
