@@ -44,7 +44,7 @@ void print(string msg_prefix, sl::ERROR_CODE err_code = sl::ERROR_CODE::SUCCESS,
 static const sl::COORDINATE_SYSTEM COORDINATE_SYSTEM = sl::COORDINATE_SYSTEM::LEFT_HANDED_Y_UP;
 static const sl::UNIT UNIT = sl::UNIT::METER;
 static const sl::BODY_TRACKING_MODEL BODY_MODEL = sl::BODY_TRACKING_MODEL::HUMAN_BODY_ACCURATE;
-static const sl::BODY_FORMAT BODY_FORMAT = sl::BODY_FORMAT::BODY_38;
+static const sl::BODY_FORMAT BODY_FORMAT = sl::BODY_FORMAT::BODY_34;
 
 std::vector<sl::CameraIdentifier> cameras;
 
