@@ -2,6 +2,8 @@
 #define __SENDER_RUNNER_HDR__
 
 #include <sl/Fusion.hpp>
+#include <sl/Camera.hpp>
+
 #include <thread>
 
 class SenderRunner {
@@ -19,10 +21,12 @@ public:
     void setBodyTracking(bool enable) { enable_tracking = enable; }
     void setBodyFitting(bool enable) { enable_body_fitting = enable; }
     void setDetectionConfidence(float threshold) { detection_confidence = threshold; }
+    void setPredictionTimeout(float seconds) { body_tracking_parameters.prediction_timeout_s = seconds; }
 
 private:
     sl::Camera zed;
     sl::InitParameters init_params;
+	sl::BodyTrackingParameters body_tracking_parameters;
     void work();
     std::thread runner;
     bool running;
