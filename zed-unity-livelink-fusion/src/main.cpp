@@ -50,8 +50,6 @@ std::vector<sl::CameraIdentifier> cameras;
 
 int main(int argc, char **argv) {
 
-    std::cout << "HALLO ANDRE";
-
     if (argc < 2) {
         std::cout << "Usage: " << argv[0] << " <config_file> [options]\n"
                   << "Options:\n"
