@@ -78,10 +78,11 @@ int main(int argc, char **argv) {
         std::string arg = argv[i];
         if (arg == "--depth-mode" && i + 1 < argc) {
             std::string mode = argv[++i];
-            if (mode == "NEURAL_LIGHT") depth_mode = sl::DEPTH_MODE::NEURAL_LIGHT;
-            else if (mode == "NEURAL") depth_mode = sl::DEPTH_MODE::NEURAL;
-            else if (mode == "NEURAL_PLUS") depth_mode = sl::DEPTH_MODE::NEURAL_PLUS;
-            else if (mode == "ULTRA") depth_mode = sl::DEPTH_MODE::ULTRA;
+//            if (mode == "NEURAL_LIGHT") depth_mode = sl::DEPTH_MODE::NEURAL_LIGHT;
+//            else if (mode == "NEURAL") depth_mode = sl::DEPTH_MODE::NEURAL;
+//            else if (mode == "NEURAL_PLUS") depth_mode = sl::DEPTH_MODE::NEURAL_PLUS;
+//            else if (mode == "ULTRA") depth_mode = sl::DEPTH_MODE::ULTRA;
+            if (mode == "ULTRA") depth_mode = sl::DEPTH_MODE::ULTRA;
             else if (mode == "QUALITY") depth_mode = sl::DEPTH_MODE::QUALITY;
             else if (mode == "PERFORMANCE") depth_mode = sl::DEPTH_MODE::PERFORMANCE;
         } else if (arg == "--body-model" && i + 1 < argc) {
