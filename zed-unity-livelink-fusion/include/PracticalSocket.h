@@ -22,6 +22,7 @@
 
 #include <string>            // For string
 #include <exception>         // For exception class
+#include <cstdint>           // For uintptr_t (Windows SOCKET is UINT_PTR, wider than int on x64)
 
 using namespace std;
 
@@ -126,9 +127,9 @@ private:
     void operator=(const Socket& sock);
 
 protected:
-    int sockDesc;              // Socket descriptor
+    uintptr_t sockDesc;        // Socket descriptor (Windows SOCKET is UINT_PTR, not int)
     Socket(int type, int protocol) throw(SocketException);
-    Socket(int sockDesc);
+    Socket(uintptr_t sockDesc);
 };
 
 /**
@@ -181,7 +182,7 @@ public:
 
 protected:
     CommunicatingSocket(int type, int protocol) throw(SocketException);
-    CommunicatingSocket(int newConnSD);
+    CommunicatingSocket(uintptr_t newConnSD);
 };
 
 /**
@@ -208,7 +209,7 @@ public:
 private:
     // Access for TCPServerSocket::accept() connection creation
     friend class TCPServerSocket;
-    TCPSocket(int newConnSD);
+    TCPSocket(uintptr_t newConnSD);
 };
 
 /**

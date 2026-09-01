@@ -50,7 +50,7 @@ int main(int argc, char **argv) {
     InitParameters init_parameters;
     init_parameters.camera_resolution = RESOLUTION::HD720;
     init_parameters.camera_fps = 30;
-    init_parameters.depth_mode = DEPTH_MODE::ULTRA;
+    init_parameters.depth_mode = DEPTH_MODE::NEURAL_LIGHT;
     init_parameters.coordinate_system = COORDINATE_SYSTEM::LEFT_HANDED_Y_UP; // Coordinate system of Unity.
     init_parameters.svo_real_time_mode = true;    
 

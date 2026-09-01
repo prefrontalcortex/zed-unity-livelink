@@ -21,6 +21,7 @@
 
 #ifdef WIN32
 #include <winsock.h>         // For socket(), connect(), send(), and recv()
+#include <windows.h>         // For FormatMessage() (readable WSAGetLastError() text)
 typedef int socklen_t;
 typedef char raw_type;       // Type used for raw data on this platform
 #else
@@ -35,6 +36,7 @@ typedef void raw_type;       // Type used for raw data on this platform
 
 #include <errno.h>             // For errno
 #include <cstring>             // For memset
+#include <iostream>            // For temporary diagnostics (cerr)
 
 #pragma comment(lib, "Ws2_32.lib")
 
@@ -50,7 +52,25 @@ SocketException::SocketException(const string& message, bool inclSysMsg)
 throw() : userMessage(message) {
     if (inclSysMsg) {
         userMessage.append(": ");
+#ifdef WIN32
+        // errno/strerror() do not reflect Winsock errors on Windows; WSAGetLastError() does.
+        int errCode = WSAGetLastError();
+        char* errMsg = nullptr;
+        DWORD len = FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+            nullptr, errCode, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&errMsg, 0, nullptr);
+        if (len && errMsg) {
+            string sysMsg(errMsg, len);
+            while (!sysMsg.empty() && (sysMsg.back() == '\n' || sysMsg.back() == '\r'))
+                sysMsg.pop_back();
+            userMessage.append(sysMsg);
+            LocalFree(errMsg);
+        }
+        else {
+            userMessage.append("WSA error code " + std::to_string(errCode));
+        }
+#else
         userMessage.append(strerror(errno));
+#endif
     }
 }
 
@@ -95,12 +115,15 @@ Socket::Socket(int type, int protocol) throw(SocketException) {
 #endif
 
     // Make a new socket
-    if ((sockDesc = socket(PF_INET, type, protocol)) < 0) {
+    // Compared against (uintptr_t)-1 rather than "< 0" since sockDesc is unsigned and, on
+    // Windows, a SOCKET (UINT_PTR) can be wider than int - INVALID_SOCKET's bit pattern
+    // (all-ones) still equals (uintptr_t)-1, and on Unix a -1 int also widens to all-ones.
+    if ((sockDesc = socket(PF_INET, type, protocol)) == (uintptr_t)-1) {
         throw SocketException("Socket creation failed (socket())", true);
     }
 }
 
-Socket::Socket(int sockDesc) {
+Socket::Socket(uintptr_t sockDesc) {
     this->sockDesc = sockDesc;
 }
 
@@ -181,7 +204,7 @@ CommunicatingSocket::CommunicatingSocket(int type, int protocol)
 throw(SocketException) : Socket(type, protocol) {
 }
 
-CommunicatingSocket::CommunicatingSocket(int newConnSD) : Socket(newConnSD) {
+CommunicatingSocket::CommunicatingSocket(uintptr_t newConnSD) : Socket(newConnSD) {
 }
 
 void CommunicatingSocket::connect(const string& foreignAddress,
@@ -246,7 +269,7 @@ throw(SocketException) : CommunicatingSocket(SOCK_STREAM, IPPROTO_TCP) {
     connect(foreignAddress, foreignPort);
 }
 
-TCPSocket::TCPSocket(int newConnSD) : CommunicatingSocket(newConnSD) {
+TCPSocket::TCPSocket(uintptr_t newConnSD) : CommunicatingSocket(newConnSD) {
 }
 
 // TCPServerSocket Code
@@ -265,8 +288,8 @@ TCPServerSocket::TCPServerSocket(const string& localAddress,
 }
 
 TCPSocket* TCPServerSocket::accept() throw(SocketException) {
-    int newConnSD;
-    if ((newConnSD = ::accept(sockDesc, NULL, 0)) < 0) {
+    uintptr_t newConnSD;
+    if ((newConnSD = ::accept(sockDesc, NULL, 0)) == (uintptr_t)-1) {
         throw SocketException("Accept failed (accept())", true);
     }
 
@@ -352,8 +375,15 @@ int UDPSocket::recvFrom(void* buffer, int bufferLen, string & sourceAddress,
 }
 
 void UDPSocket::setMulticastTTL(unsigned char multicastTTL) throw(SocketException) {
+#ifdef WIN32
+    // Windows expects a 4-byte DWORD for IP_MULTICAST_TTL, unlike the 1-byte u_char used on Unix.
+    DWORD ttl = multicastTTL;
+    if (setsockopt(sockDesc, IPPROTO_IP, IP_MULTICAST_TTL,
+        (raw_type*)&ttl, sizeof(ttl)) < 0) {
+#else
     if (setsockopt(sockDesc, IPPROTO_IP, IP_MULTICAST_TTL,
         (raw_type*)&multicastTTL, sizeof(multicastTTL)) < 0) {
+#endif
         throw SocketException("Multicast TTL set failed (setsockopt())", true);
     }
 }

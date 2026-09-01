@@ -21,6 +21,8 @@
 // OpenGL Viewer(!=0) or no viewer (0)
 #define DISPLAY_OGL 1
 
+#include <memory>
+
 // ZED include
 #include "SenderRunner.hpp"
 #include "GLViewer.hpp"
@@ -44,33 +46,80 @@ void print(string msg_prefix, sl::ERROR_CODE err_code = sl::ERROR_CODE::SUCCESS,
 static const sl::COORDINATE_SYSTEM COORDINATE_SYSTEM = sl::COORDINATE_SYSTEM::LEFT_HANDED_Y_UP;
 static const sl::UNIT UNIT = sl::UNIT::METER;
 static const sl::BODY_TRACKING_MODEL BODY_MODEL = sl::BODY_TRACKING_MODEL::HUMAN_BODY_ACCURATE;
-static const sl::BODY_FORMAT BODY_FORMAT = sl::BODY_FORMAT::BODY_38;
+static const sl::BODY_FORMAT BODY_FORMAT = sl::BODY_FORMAT::BODY_34;
 
 std::vector<sl::CameraIdentifier> cameras;
 
 int main(int argc, char **argv) {
 
-    if (argc != 2) {
-        std::cout << "Need a Localization file in input" << std::endl;
+    if (argc < 2) {
+        std::cout << "Usage: " << argv[0] << " <config_file> [options]\n"
+                  << "Options:\n"
+                  << "  --depth-mode <NEURAL|NEURAL_PLUS|ULTRA|QUALITY|PERFORMANCE> (default: NEURAL)\n"
+                  << "  --body-model <HUMAN_BODY_FAST|HUMAN_BODY_ACCURATE> (default: HUMAN_BODY_ACCURATE)\n"
+                  << "  --enable-tracking <0|1> (default: 0)\n"
+                  << "  --enable-body-fitting <0|1> (default: 0)\n"
+                  << "  --detection-confidence <0-100> (default: 40)\n"
+                  << std::endl;
         return 1;
     }
 
     std::string json_config_filename(argv[1]);
+    
+    // Default values
+    sl::DEPTH_MODE depth_mode = sl::DEPTH_MODE::NEURAL;
+    sl::BODY_TRACKING_MODEL body_model = sl::BODY_TRACKING_MODEL::HUMAN_BODY_ACCURATE;
+    bool enable_tracking = false;
+    bool enable_body_fitting = false;
+    float detection_confidence = 40.0f;
+
+
+
+    // Parse command line arguments
+    for (int i = 2; i < argc; i++) {
+        std::string arg = argv[i];
+        if (arg == "--depth-mode" && i + 1 < argc) {
+            std::string mode = argv[++i];
+//            if (mode == "NEURAL_LIGHT") depth_mode = sl::DEPTH_MODE::NEURAL_LIGHT;
+//            else if (mode == "NEURAL") depth_mode = sl::DEPTH_MODE::NEURAL;
+//            else if (mode == "NEURAL_PLUS") depth_mode = sl::DEPTH_MODE::NEURAL_PLUS;
+//            else if (mode == "ULTRA") depth_mode = sl::DEPTH_MODE::ULTRA;
+            if (mode == "ULTRA") depth_mode = sl::DEPTH_MODE::ULTRA;
+            else if (mode == "QUALITY") depth_mode = sl::DEPTH_MODE::QUALITY;
+            else if (mode == "PERFORMANCE") depth_mode = sl::DEPTH_MODE::PERFORMANCE;
+        } else if (arg == "--body-model" && i + 1 < argc) {
+            std::string model = argv[++i];
+            if (model == "HUMAN_BODY_FAST") body_model = sl::BODY_TRACKING_MODEL::HUMAN_BODY_FAST;
+            else if (model == "HUMAN_BODY_ACCURATE") body_model = sl::BODY_TRACKING_MODEL::HUMAN_BODY_ACCURATE;
+        } else if (arg == "--enable-tracking" && i + 1 < argc) {
+            enable_tracking = std::stoi(argv[++i]) != 0;
+        } else if (arg == "--enable-body-fitting" && i + 1 < argc) {
+            enable_body_fitting = std::stoi(argv[++i]) != 0;
+        } else if (arg == "--detection-confidence" && i + 1 < argc) {
+            detection_confidence = std::stof(argv[++i]);
+        }
+    }
 
     auto configurations = sl::readFusionConfigurationFile(json_config_filename, COORDINATE_SYSTEM, UNIT);
-
     if (configurations.empty()) {
         std::cout << "Empty configuration File." << std::endl;
         return EXIT_FAILURE;
     }
 
-    // Check if the ZED camera should run within the same process or if they are running on the edge.
     std::vector<SenderRunner> clients(configurations.size());
     int id_ = 0;
     for (auto conf : configurations) {
-        // if the ZED camera should run locally, then start a thread to handle it
         if (conf.communication_parameters.getType() == sl::CommunicationParameters::COMM_TYPE::INTRA_PROCESS) {
             std::cout << "Try to open ZED " << conf.serial_number << ".." << std::flush;
+            
+            // Configure the client with command line parameters
+            clients[id_].setDepthMode(depth_mode);
+            clients[id_].setBodyModel(body_model);
+            clients[id_].setBodyTracking(enable_tracking);
+            clients[id_].setBodyFitting(enable_body_fitting);
+            clients[id_].setDetectionConfidence(detection_confidence);
+            //clients[id_].setPredictionTimeout(1);
+            
             auto state = clients[id_++].open(conf.input_type, BODY_FORMAT);
             if (state)
                 std::cout << ". ready !" << std::endl;
@@ -140,16 +189,32 @@ int main(int argc, char **argv) {
     // ----------------------------------
     // UDP to Unity----------------------
     // ----------------------------------
-    std::string servAddress;
-    unsigned short servPort;
-    UDPSocket sock;
+    std::string servAddress = "230.0.0.1";
+    unsigned short servPort = 20001;
+    std::unique_ptr<UDPSocket> sock;
 
-    sock.setMulticastTTL(1);
-
-    servAddress = "230.0.0.1";
-    servPort = 20001;
-
-    std::cout << "Sending fused data at " << servAddress << ":" << servPort << std::endl;
+    try
+    {
+        sock = std::make_unique<UDPSocket>();
+        try
+        {
+            sock->setMulticastTTL(1);
+        }
+        catch (SocketException& e)
+        {
+            // 1 is already Windows' default IP_MULTICAST_TTL for a fresh socket, so failing to set
+            // it explicitly (seen as WSAEINVAL on this specific PC/environment) is harmless - the
+            // socket is still fully usable for sending, just keep the OS default instead.
+            cerr << "Note: could not explicitly set multicast TTL, using OS default (1): " << e.what() << endl;
+        }
+        std::cout << "Sending fused data at " << servAddress << ":" << servPort << std::endl;
+    }
+    catch (SocketException& e)
+    {
+        // A network/UDP setup failure must not take down camera tracking and the 3D view with it,
+        // so we disable Unity streaming for this run instead of letting the exception escape main().
+        cerr << "UDP setup failed, continuing without Unity streaming: " << e.what() << endl;
+    }
 
     // run the fusion as long as the viewer is available.
     while (run)
@@ -168,7 +233,7 @@ int main(int argc, char **argv) {
             // update the 3D view
             viewer.updateBodies(fused_bodies, camera_raw_data, metrics);
 #endif
-            if (fused_bodies.is_new)
+            if (fused_bodies.is_new && sock)
             {
                 try
                 {
@@ -180,7 +245,7 @@ int main(int argc, char **argv) {
                     for (int i = 0; i < fused_bodies.body_list.size(); i++)
                     {
                         std::string data_to_send = getJson(metrics, fused_bodies, i, fused_bodies.body_format).dump();
-                        sock.sendTo(data_to_send.data(), data_to_send.size(), servAddress, servPort);
+                        sock->sendTo(data_to_send.data(), data_to_send.size(), servAddress, servPort);
                         sl::sleep_us(100);
 
                     }

@@ -136,6 +136,7 @@ void GLViewer::init(int argc, char** argv) {
     glutCreateWindow("ZED| 3D View");
     //glViewport(0, 0, width, height);
 
+    glewExperimental = GL_TRUE;
     GLenum err = glewInit();
     if (GLEW_OK != err)
         std::cout << "ERROR: glewInit failed: " << glewGetErrorString(err) << "\n";
