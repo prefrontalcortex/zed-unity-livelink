@@ -21,6 +21,8 @@
 // OpenGL Viewer(!=0) or no viewer (0)
 #define DISPLAY_OGL 1
 
+#include <memory>
+
 // ZED include
 #include "SenderRunner.hpp"
 #include "GLViewer.hpp"
@@ -53,7 +55,7 @@ int main(int argc, char **argv) {
     if (argc < 2) {
         std::cout << "Usage: " << argv[0] << " <config_file> [options]\n"
                   << "Options:\n"
-                  << "  --depth-mode <NEURAL_LIGHT|NEURAL|NEURAL_PLUS|ULTRA|QUALITY|PERFORMANCE> (default: NEURAL)\n"
+                  << "  --depth-mode <NEURAL|NEURAL_PLUS|ULTRA|QUALITY|PERFORMANCE> (default: NEURAL)\n"
                   << "  --body-model <HUMAN_BODY_FAST|HUMAN_BODY_ACCURATE> (default: HUMAN_BODY_ACCURATE)\n"
                   << "  --enable-tracking <0|1> (default: 0)\n"
                   << "  --enable-body-fitting <0|1> (default: 0)\n"
@@ -187,16 +189,32 @@ int main(int argc, char **argv) {
     // ----------------------------------
     // UDP to Unity----------------------
     // ----------------------------------
-    std::string servAddress;
-    unsigned short servPort;
-    UDPSocket sock;
+    std::string servAddress = "230.0.0.1";
+    unsigned short servPort = 20001;
+    std::unique_ptr<UDPSocket> sock;
 
-    sock.setMulticastTTL(1);
-
-    servAddress = "230.0.0.1";
-    servPort = 20001;
-
-    std::cout << "Sending fused data at " << servAddress << ":" << servPort << std::endl;
+    try
+    {
+        sock = std::make_unique<UDPSocket>();
+        try
+        {
+            sock->setMulticastTTL(1);
+        }
+        catch (SocketException& e)
+        {
+            // 1 is already Windows' default IP_MULTICAST_TTL for a fresh socket, so failing to set
+            // it explicitly (seen as WSAEINVAL on this specific PC/environment) is harmless - the
+            // socket is still fully usable for sending, just keep the OS default instead.
+            cerr << "Note: could not explicitly set multicast TTL, using OS default (1): " << e.what() << endl;
+        }
+        std::cout << "Sending fused data at " << servAddress << ":" << servPort << std::endl;
+    }
+    catch (SocketException& e)
+    {
+        // A network/UDP setup failure must not take down camera tracking and the 3D view with it,
+        // so we disable Unity streaming for this run instead of letting the exception escape main().
+        cerr << "UDP setup failed, continuing without Unity streaming: " << e.what() << endl;
+    }
 
     // run the fusion as long as the viewer is available.
     while (run)
@@ -215,7 +233,7 @@ int main(int argc, char **argv) {
             // update the 3D view
             viewer.updateBodies(fused_bodies, camera_raw_data, metrics);
 #endif
-            if (fused_bodies.is_new)
+            if (fused_bodies.is_new && sock)
             {
                 try
                 {
@@ -227,7 +245,7 @@ int main(int argc, char **argv) {
                     for (int i = 0; i < fused_bodies.body_list.size(); i++)
                     {
                         std::string data_to_send = getJson(metrics, fused_bodies, i, fused_bodies.body_format).dump();
-                        sock.sendTo(data_to_send.data(), data_to_send.size(), servAddress, servPort);
+                        sock->sendTo(data_to_send.data(), data_to_send.size(), servAddress, servPort);
                         sl::sleep_us(100);
 
                     }
