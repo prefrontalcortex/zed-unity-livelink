@@ -22,6 +22,7 @@
 #define DISPLAY_OGL 1
 
 #include <memory>
+#include <chrono>
 
 // ZED include
 #include "SenderRunner.hpp"
@@ -47,6 +48,12 @@ static const sl::COORDINATE_SYSTEM COORDINATE_SYSTEM = sl::COORDINATE_SYSTEM::LE
 static const sl::UNIT UNIT = sl::UNIT::METER;
 static const sl::BODY_TRACKING_MODEL BODY_MODEL = sl::BODY_TRACKING_MODEL::HUMAN_BODY_ACCURATE;
 static const sl::BODY_FORMAT BODY_FORMAT = sl::BODY_FORMAT::BODY_34;
+
+// If a camera hasn't delivered a single successful grab() for this long, the SDK's own internal
+// reconnect logic (observed to either recover within ~10s or give up around ~45s) has clearly
+// failed. Rather than keep the process alive in a silently broken state, we exit so the external
+// watchdog (trackingwatcher.ps1) restarts the whole app cleanly.
+static const std::chrono::seconds CAMERA_STUCK_TIMEOUT(60);
 
 std::vector<sl::CameraIdentifier> cameras;
 
@@ -216,9 +223,25 @@ int main(int argc, char **argv) {
         cerr << "UDP setup failed, continuing without Unity streaming: " << e.what() << endl;
     }
 
+    bool cameraStuck = false;
+
     // run the fusion as long as the viewer is available.
     while (run)
     {
+        // If a camera's own USB/connection recovery has clearly failed, don't keep running in a
+        // silently broken state (the OpenGL window stays open either way) - exit so the external
+        // watchdog restarts the app instead of needing someone to notice by hand.
+        for (auto& it : clients) {
+            if (it.isRunning() && it.timeSinceLastSuccessfulGrab() > CAMERA_STUCK_TIMEOUT) {
+                cerr << "Camera has not delivered a frame in over " << CAMERA_STUCK_TIMEOUT.count()
+                     << "s and did not recover on its own - exiting for the watchdog to restart." << endl;
+                cameraStuck = true;
+                break;
+            }
+        }
+        if (cameraStuck)
+            break;
+
         // run the fusion process (which gather data from all camera, sync them and process them)
         if (fusion.process() == sl::FUSION_ERROR_CODE::SUCCESS) {
             // Retrieve fused body
@@ -273,7 +296,7 @@ int main(int argc, char **argv) {
 
     fusion.close();
 
-    return EXIT_SUCCESS;
+    return cameraStuck ? EXIT_FAILURE : EXIT_SUCCESS;
 }
 
 

@@ -1,5 +1,12 @@
 #include "SenderRunner.hpp"
 
+namespace {
+    long long nowMs() {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+    }
+}
+
 SenderRunner::SenderRunner() : running(false), detection_confidence(40), enable_body_fitting(false), enable_tracking(false), body_tracking_model(sl::BODY_TRACKING_MODEL::HUMAN_BODY_ACCURATE) {
     init_params.depth_mode = sl::DEPTH_MODE::NEURAL;  // Changed from ULTRA to NEURAL_MEDIUM
     init_params.camera_fps = 30;
@@ -57,11 +64,16 @@ void SenderRunner::start()
 
     if (zed.isOpened()) {
         running = true;
+        lastSuccessfulGrabMs = nowMs();
         // the camera should stream its data so the fusion can subscibe to it to gather the detected body and others metadata needed for the process.
         zed.startPublishing();
         // the thread can start to process the camera grab in background
         runner = std::thread(&SenderRunner::work, this);
     }
+}
+
+std::chrono::milliseconds SenderRunner::timeSinceLastSuccessfulGrab() const {
+    return std::chrono::milliseconds(nowMs() - lastSuccessfulGrabMs.load());
 }
 
 void SenderRunner::stop() 
@@ -92,6 +104,12 @@ void SenderRunner::work()
 
             // just be sure to run the bodies detection
             zed.retrieveBodies(bodies, body_runtime_parameters);
+            lastSuccessfulGrabMs = nowMs();
+        }
+        else
+        {
+            // Avoid busy-spinning the CPU while the SDK tries to recover a lost camera connection.
+            sl::sleep_ms(20);
         }
     }
 }
