@@ -23,6 +23,7 @@
 
 #include <memory>
 #include <chrono>
+#include <algorithm>
 
 // ZED include
 #include "SenderRunner.hpp"
@@ -55,7 +56,21 @@ static const sl::BODY_FORMAT BODY_FORMAT = sl::BODY_FORMAT::BODY_34;
 // watchdog (trackingwatcher.ps1) restarts the whole app cleanly.
 static const std::chrono::seconds CAMERA_STUCK_TIMEOUT(60);
 
+// A shorter threshold: once a camera has been struggling this long, proactively unsubscribe it
+// from the fusion instead of leaving it registered while it delivers stale/no data - fusing in a
+// half-working camera's noise degrades tracking quality more than falling back to the remaining
+// camera(s) cleanly. Re-subscribed automatically once it starts grabbing again.
+static const std::chrono::seconds CAMERA_DEGRADED_TIMEOUT(25);
+
 std::vector<sl::CameraIdentifier> cameras;
+
+struct CameraSlot {
+    sl::CameraIdentifier uuid;
+    sl::CommunicationParameters comm_params;
+    sl::Transform pose;
+    SenderRunner* runner;
+    bool subscribed;
+};
 
 int main(int argc, char **argv) {
 
@@ -150,14 +165,20 @@ int main(int argc, char **argv) {
     fusion.init(init_params);
 
     // subscribe to every cameras of the setup to internally gather their data
-    for (auto& it : configurations) {
+    std::vector<CameraSlot> cameraSlots;
+    for (size_t i = 0; i < configurations.size(); i++) {
+        auto& it = configurations[i];
         sl::CameraIdentifier uuid(it.serial_number);
         // to subscribe to a camera you must give its serial number, the way to communicate with it (shared memory or local network), and its world pose in the setup.
         auto state = fusion.subscribe(uuid, it.communication_parameters, it.pose);
         if (state != sl::FUSION_ERROR_CODE::SUCCESS)
             std::cout << "Unable to subscribe to " << std::to_string(uuid.sn) << " . " << state << std::endl;
-        else
+        else {
             cameras.push_back(uuid);
+            // clients[i] corresponds to configurations[i] assuming all cameras are INTRA_PROCESS,
+            // which matches this deployment (and the existing open-loop above makes the same assumption).
+            cameraSlots.push_back({ uuid, it.communication_parameters, it.pose, &clients[i], true });
+        }
     }
 
     // check that at least one camera is connected
@@ -228,6 +249,33 @@ int main(int argc, char **argv) {
     // run the fusion as long as the viewer is available.
     while (run)
     {
+        // A camera that's struggling (but not yet declared fully stuck) still counts as
+        // "subscribed" in the fusion, which keeps trying to combine its stale/missing data with
+        // the healthy camera(s) - hurting tracking quality more than falling back cleanly to
+        // whichever cameras are actually still working. Unsubscribe it, and re-subscribe once
+        // it's grabbing again.
+        for (auto& slot : cameraSlots) {
+            if (!slot.runner->isRunning())
+                continue;
+            auto elapsed = slot.runner->timeSinceLastSuccessfulGrab();
+            if (slot.subscribed && elapsed > CAMERA_DEGRADED_TIMEOUT) {
+                cerr << "Camera " << slot.uuid.sn << " has not delivered a frame in over " << CAMERA_DEGRADED_TIMEOUT.count()
+                     << "s - unsubscribing from fusion so tracking continues cleanly with the remaining camera(s)." << endl;
+                fusion.unsubscribe(slot.uuid);
+                slot.subscribed = false;
+                cameras.erase(std::remove_if(cameras.begin(), cameras.end(),
+                    [&](const sl::CameraIdentifier& c) { return c.sn == slot.uuid.sn; }), cameras.end());
+            }
+            else if (!slot.subscribed && elapsed < std::chrono::seconds(2)) {
+                auto state = fusion.subscribe(slot.uuid, slot.comm_params, slot.pose);
+                if (state == sl::FUSION_ERROR_CODE::SUCCESS) {
+                    cerr << "Camera " << slot.uuid.sn << " is delivering frames again - re-subscribed to fusion." << endl;
+                    slot.subscribed = true;
+                    cameras.push_back(slot.uuid);
+                }
+            }
+        }
+
         // If a camera's own USB/connection recovery has clearly failed, don't keep running in a
         // silently broken state (the OpenGL window stays open either way) - exit so the external
         // watchdog restarts the app instead of needing someone to notice by hand.
